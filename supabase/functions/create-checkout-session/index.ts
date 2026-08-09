@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { userId, priceId: reqPriceId, redirectOrigin } = await req.json();
+    const { userId, redirectOrigin } = await req.json();
 
     if (!userId) {
       return new Response(
@@ -22,13 +22,13 @@ serve(async (req) => {
     }
 
     const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
-    const stripePriceId = reqPriceId || Deno.env.get("STRIPE_PRICE_ID");
+    const stripePriceId = Deno.env.get("STRIPE_PRICE_ID");
 
     if (!stripeSecretKey) {
       throw new Error("STRIPE_SECRET_KEY environment secret is missing");
     }
     if (!stripePriceId) {
-      throw new Error("STRIPE_PRICE_ID is missing. Please set it in request body or Supabase secrets.");
+      throw new Error("STRIPE_PRICE_ID secret is missing on server. Please set it using 'supabase secrets set STRIPE_PRICE_ID=...'");
     }
 
     const origin = redirectOrigin || req.headers.get("origin") || "http://localhost:5173";
