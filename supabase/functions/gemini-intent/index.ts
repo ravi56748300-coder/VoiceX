@@ -269,6 +269,131 @@ serve(async (req) => {
       throw new Error("SUPABASE_SERVICE_ROLE_KEY environment secret is missing");
     }
 
+    // --- TIERED USAGE LIMITS & SUBSCRIPTION LOGIC ---
+    let subscriptionInfo = {
+      isPremium: false,
+      inTrial: true,
+      daysRemainingInTrial: 30,
+      postTrialPromptsRemaining: 5,
+      isLimitReached: false
+    };
+
+    if (userId && userId !== 'anonymous') {
+      try {
+        const subRes = await fetch(`${supabaseUrl}/rest/v1/user_subscriptions?user_id=eq.${encodeURIComponent(userId)}`, {
+          method: "GET",
+          headers: {
+            "apikey": supabaseServiceRoleKey,
+            "Authorization": `Bearer ${supabaseServiceRoleKey}`
+          }
+        });
+
+        let subRow = null;
+        if (subRes.ok) {
+          const subs = await subRes.json();
+          if (subs && subs.length > 0) {
+            subRow = subs[0];
+          }
+        }
+
+        // STEP G: If user has no row in user_subscriptions, create one on the fly (treat as trial starting today)
+        if (!subRow) {
+          const newSubData = {
+            user_id: userId,
+            trial_started_at: new Date().toISOString(),
+            is_premium: false,
+            post_trial_prompt_count: 0
+          };
+          const createSubRes = await fetch(`${supabaseUrl}/rest/v1/user_subscriptions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": supabaseServiceRoleKey,
+              "Authorization": `Bearer ${supabaseServiceRoleKey}`,
+              "Prefer": "return=representation"
+            },
+            body: JSON.stringify(newSubData)
+          });
+          if (createSubRes.ok) {
+            const createdData = await createSubRes.json();
+            if (createdData && createdData.length > 0) {
+              subRow = createdData[0];
+            } else {
+              subRow = newSubData;
+            }
+          } else {
+            subRow = newSubData;
+          }
+        }
+
+        let trialStart = Date.now();
+        if (subRow && subRow.trial_started_at) {
+          const parsed = new Date(subRow.trial_started_at).getTime();
+          if (!isNaN(parsed)) {
+            trialStart = parsed;
+          }
+        }
+
+        const daysSinceTrial = Math.max(0, Math.floor((Date.now() - trialStart) / (1000 * 60 * 60 * 24)));
+        const isPremium = Boolean(subRow && subRow.is_premium);
+        const inTrial = daysSinceTrial <= 30;
+        const daysRemainingInTrial = Math.max(0, 30 - daysSinceTrial);
+        const postTrialPromptsUsed = (subRow && subRow.post_trial_prompt_count) || 0;
+        const postTrialPromptsRemaining = Math.max(0, 5 - postTrialPromptsUsed);
+
+        subscriptionInfo = {
+          isPremium,
+          inTrial,
+          daysRemainingInTrial,
+          postTrialPromptsRemaining,
+          isLimitReached: false
+        };
+
+        // Enforce Limits:
+        // 1. is_premium = true -> unlimited
+        // 2. in trial (<= 30 days) -> unlimited
+        // 3. post-trial (> 30 days) & not premium:
+        if (!isPremium && !inTrial) {
+          if (postTrialPromptsUsed >= 5) {
+            subscriptionInfo.isLimitReached = true;
+            subscriptionInfo.postTrialPromptsRemaining = 0;
+
+            // Reject command immediately, return limit message, skip model & intents
+            return new Response(
+              JSON.stringify({
+                reply: "You've used your 5 free prompts after the trial period. Upgrade to Premium for unlimited access.",
+                tool: null,
+                params: null,
+                commandId: null,
+                isLimitReached: true,
+                subscriptionInfo
+              }),
+              { status: 200, headers: corsHeaders }
+            );
+          } else {
+            // Post-trial allowed prompt (under 5): increment post_trial_prompt_count by 1
+            const newCount = postTrialPromptsUsed + 1;
+            subscriptionInfo.postTrialPromptsRemaining = Math.max(0, 5 - newCount);
+
+            fetch(`${supabaseUrl}/rest/v1/user_subscriptions?user_id=eq.${encodeURIComponent(userId)}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "apikey": supabaseServiceRoleKey,
+                "Authorization": `Bearer ${supabaseServiceRoleKey}`,
+                "Prefer": "return=minimal"
+              },
+              body: JSON.stringify({ post_trial_prompt_count: newCount })
+            }).catch(e => console.warn("Failed to increment post_trial_prompt_count:", e));
+          }
+        }
+
+      } catch (e) {
+        console.warn("Error processing subscription limits:", e);
+      }
+    }
+    // -----------------------------------------------
+
     // Auto-update conversation title and updated_at timestamp
     if (conversationId && userId) {
       try {
@@ -605,7 +730,8 @@ serve(async (req) => {
         citations: citations,
         result: searchResult,
         needsClarification,
-        dbError: dbErrorStr
+        dbError: dbErrorStr,
+        subscriptionInfo
       }),
       { status: 200, headers: corsHeaders }
     );

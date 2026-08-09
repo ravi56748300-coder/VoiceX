@@ -7,6 +7,9 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from './firebase';
 import AuthScreen from './components/AuthScreen';
 import HistoryScreen from './components/HistoryScreen';
+import UpgradeModal from './components/UpgradeModal';
+import PlanSidebar from './components/PlanSidebar';
+import { Crown, Zap } from 'lucide-react';
 const getTimestamp = () => {
   const now = new Date();
   return now.toTimeString().split(' ')[0];
@@ -31,6 +34,8 @@ export default function App() {
   const [showDevPanel, setShowDevPanel] = useState(true);
   const [currentView, setCurrentView] = useState('main'); // 'main' | 'history'
   const [conversationId, setConversationId] = useState(null);
+  const [subscriptionInfo, setSubscriptionInfo] = useState(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   // References for Web Speech API and voice synthesis
   const recognitionRef = useRef(null);
@@ -78,11 +83,60 @@ export default function App() {
     return null;
   }, [user]);
 
+  const fetchSubscriptionInfo = useCallback(async (uid) => {
+    if (!uid) return;
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL || 'https://lfuaxrkukzmzjoljhmvw.supabase.co'}/rest/v1/user_subscriptions?user_id=eq.${encodeURIComponent(uid)}`, {
+        headers: {
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY || ''}`
+        }
+      });
+      if (res.ok) {
+        const subs = await res.json();
+        if (subs && subs.length > 0) {
+          const sub = subs[0];
+          let trialStart = Date.now();
+          if (sub.trial_started_at) {
+            const parsed = new Date(sub.trial_started_at).getTime();
+            if (!isNaN(parsed)) trialStart = parsed;
+          }
+          const daysSinceTrial = Math.max(0, Math.floor((Date.now() - trialStart) / (1000 * 60 * 60 * 24)));
+          const isPremium = Boolean(sub.is_premium);
+          const inTrial = daysSinceTrial <= 30;
+          const daysRemainingInTrial = Math.max(0, 30 - daysSinceTrial);
+          const postTrialPromptsUsed = sub.post_trial_prompt_count || 0;
+          const postTrialPromptsRemaining = Math.max(0, 5 - postTrialPromptsUsed);
+          const isLimitReached = !isPremium && !inTrial && postTrialPromptsUsed >= 5;
+
+          setSubscriptionInfo({
+            isPremium,
+            inTrial,
+            daysRemainingInTrial,
+            postTrialPromptsRemaining,
+            isLimitReached
+          });
+        } else {
+          setSubscriptionInfo({
+            isPremium: false,
+            inTrial: true,
+            daysRemainingInTrial: 30,
+            postTrialPromptsRemaining: 5,
+            isLimitReached: false
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch subscription info on load:', e);
+    }
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
       if (currentUser) {
+        fetchSubscriptionInfo(currentUser.uid);
         const savedConvId = localStorage.getItem('voicex_current_conversation_id');
         if (savedConvId) {
           setConversationId(savedConvId);
@@ -92,7 +146,7 @@ export default function App() {
       }
     });
     return () => unsubscribe();
-  }, [createNewConversation]);
+  }, [createNewConversation, fetchSubscriptionInfo]);
 
   // 1. Detect SpeechRecognition & SpeechSynthesis availability on mount
   useEffect(() => {
@@ -203,6 +257,15 @@ export default function App() {
 
       const replyText = data.reply || 'Command processed.';
       console.log('[VoiceX Engine] Response received:', data);
+
+      if (data.subscriptionInfo) {
+        setSubscriptionInfo(data.subscriptionInfo);
+      }
+
+      if (data.isLimitReached || data.subscriptionInfo?.isLimitReached) {
+        setShowUpgradeModal(true);
+      }
+
       if (data.dbError) {
         console.error('[Supabase DB Insert Error]:', data.dbError);
       }
@@ -413,7 +476,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [orbState, isVoiceSupported]);
 
-  const handleTextSubmit = (inputText) => {
+  const handleUserMessage = (inputText) => {
     stopListening();
 
     const userLine = {
@@ -518,6 +581,97 @@ export default function App() {
         </div>
 
         <div className="chrome-actions">
+          {/* Active Usage / Subscription Badge */}
+          {subscriptionInfo && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {subscriptionInfo.isPremium ? (
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 10px',
+                  borderRadius: '20px',
+                  backgroundColor: 'rgba(57, 255, 138, 0.1)',
+                  border: '1px solid #39FF8A',
+                  color: '#39FF8A',
+                  fontSize: '0.75rem',
+                  fontFamily: 'var(--font-mono)',
+                  fontWeight: 'bold'
+                }}>
+                  <Crown size={12} color="#39FF8A" /> Premium
+                </span>
+              ) : subscriptionInfo.inTrial ? (
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 10px',
+                  borderRadius: '20px',
+                  backgroundColor: 'rgba(46, 111, 242, 0.12)',
+                  border: '1px solid #2E6FF2',
+                  color: '#E8ECF3',
+                  fontSize: '0.75rem',
+                  fontFamily: 'var(--font-mono)'
+                }}>
+                  <Zap size={12} color="#2E6FF2" /> {subscriptionInfo.daysRemainingInTrial}d trial left
+                </span>
+              ) : subscriptionInfo.postTrialPromptsRemaining > 0 ? (
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 10px',
+                  borderRadius: '20px',
+                  backgroundColor: 'rgba(255, 170, 0, 0.12)',
+                  border: '1px solid #FFAA00',
+                  color: '#FFAA00',
+                  fontSize: '0.75rem',
+                  fontFamily: 'var(--font-mono)'
+                }}>
+                  ⚠️ {subscriptionInfo.postTrialPromptsRemaining} prompts left
+                </span>
+              ) : (
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 10px',
+                  borderRadius: '20px',
+                  backgroundColor: 'rgba(255, 77, 106, 0.12)',
+                  border: '1px solid #FF4D6A',
+                  color: '#FF4D6A',
+                  fontSize: '0.75rem',
+                  fontFamily: 'var(--font-mono)',
+                  fontWeight: 'bold'
+                }}>
+                  🔒 Limit Reached
+                </span>
+              )}
+
+              {!subscriptionInfo.isPremium && (
+                <button
+                  onClick={() => setShowUpgradeModal(true)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    backgroundColor: '#39FF8A',
+                    color: '#0A0E14',
+                    border: 'none',
+                    fontSize: '0.75rem',
+                    fontFamily: 'var(--font-mono)',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    boxShadow: '0 0 10px rgba(57, 255, 138, 0.25)'
+                  }}
+                >
+                  <Crown size={12} /> Upgrade
+                </button>
+              )}
+            </div>
+          )}
           {/* Dev State Switcher */}
           {showDevPanel && (
             <div className="state-switcher" role="toolbar" aria-label="Orb State Switcher">
@@ -618,10 +772,22 @@ export default function App() {
       {/* Bottom Third: Terminal Text Input */}
       <footer>
         <TextConsoleInput
-          onSubmit={handleTextSubmit}
-          disabled={orbState === 'thinking'}
+          onSendMessage={handleUserMessage}
+          isProcessing={orbState === 'thinking'}
         />
       </footer>
+
+      <UpgradeModal
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+        userId={user?.uid}
+        subscriptionInfo={subscriptionInfo}
+      />
+
+      <PlanSidebar
+        subscriptionInfo={subscriptionInfo}
+        onOpenUpgradeModal={() => setShowUpgradeModal(true)}
+      />
     </div>
   );
 }
