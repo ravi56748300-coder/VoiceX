@@ -36,6 +36,12 @@ function TranscriptLine({ line }) {
   const [shoppingData, setShoppingData] = useState(null);
   const [mailtoFallbackData, setMailtoFallbackData] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [debugLogs, setDebugLogs] = useState([]);
+
+  const logDebug = (msg) => {
+    setDebugLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+    console.log(msg);
+  };
 
   // Auto-execute shopping_search on render
   useEffect(() => {
@@ -70,15 +76,15 @@ function TranscriptLine({ line }) {
   }, [tool, commandId, params, executeStatus]);
 
   const handleExecute = async () => {
-    console.log('[handleExecute] Triggered for tool:', tool, 'Command ID:', commandId);
+    logDebug(`[handleExecute] CLICK REGISTERED. Tool: ${tool} | Command ID: ${commandId}`);
 
     if (tool !== 'send_email' && tool !== 'zapier_trigger' && tool !== 'make_call' && tool !== 'send_sms' && tool !== 'send_whatsapp') {
-      console.warn('[handleExecute] Invalid tool:', tool);
+      logDebug(`[handleExecute] Invalid tool: ${tool}. Aborting.`);
       return;
     }
 
     if (!commandId) {
-      console.error('[handleExecute] Missing commandId! Cannot execute.');
+      logDebug(`[handleExecute] ERROR: Missing commandId! Cannot execute.`);
       setExecuteStatus('error');
       setExecuteError('Execution failed: Missing command ID from server. Please try again.');
       return;
@@ -89,7 +95,17 @@ function TranscriptLine({ line }) {
     
     try {
       if (tool === 'send_sms') {
-        console.log('[handleExecute] Sending SMS via backend...');
+        logDebug(`[handleExecute] Sending SMS via backend. Preparing request to /send-sms...`);
+        
+        const endpoint = 'https://lfuaxrkukzmzjoljhmvw.supabase.co/functions/v1/send-sms';
+        const payload = {
+          commandId,
+          to: params?.to,
+          message: params?.message || 'Hello from VoiceX'
+        };
+        
+        logDebug(`[handleExecute] REQUEST Endpoint: ${endpoint}`);
+        logDebug(`[handleExecute] REQUEST Payload: ${JSON.stringify(payload)}`);
         const response = await fetch('https://lfuaxrkukzmzjoljhmvw.supabase.co/functions/v1/send-sms', {
           method: 'POST',
           headers: {
@@ -104,8 +120,11 @@ function TranscriptLine({ line }) {
           })
         });
 
+        logDebug(`[handleExecute] Waiting for response from /send-sms...`);
         const data = await response.json().catch(() => ({}));
-        console.log('[handleExecute] send-sms response:', { ok: response.ok, status: response.status, data });
+        
+        logDebug(`[handleExecute] RESPONSE Status: ${response.status} ${response.statusText}`);
+        logDebug(`[handleExecute] RESPONSE Body: ${JSON.stringify(data)}`);
 
         if (!response.ok || !data.success) {
           if (data.isUnverified) {
@@ -123,6 +142,7 @@ function TranscriptLine({ line }) {
         const message = String(params?.message || '');
         const waUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
         
+        logDebug(`[handleExecute] WhatsApp deep link generated: ${waUrl}`);
         console.log('[WhatsApp] Generated deep link URL:', waUrl);
         openDeepLink(waUrl, '_blank');
         setExecuteStatus('handed_off');
@@ -138,21 +158,31 @@ function TranscriptLine({ line }) {
       }
 
       if (tool === 'make_call') {
-        const response = await fetch('https://lfuaxrkukzmzjoljhmvw.supabase.co/functions/v1/make-call', {
+        logDebug(`[handleExecute] Making call via backend. Preparing request to /make-call...`);
+        const endpoint = 'https://lfuaxrkukzmzjoljhmvw.supabase.co/functions/v1/make-call';
+        const payload = {
+          commandId,
+          to: params.to,
+          script: params.script || params.purpose || 'Hello from VoiceX'
+        };
+        logDebug(`[handleExecute] REQUEST Endpoint: ${endpoint}`);
+        logDebug(`[handleExecute] REQUEST Payload: ${JSON.stringify(payload)}`);
+
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
             'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
           },
-          body: JSON.stringify({
-            commandId,
-            to: params.to,
-            script: params.script || params.purpose || 'Hello from VoiceX'
-          })
+          body: JSON.stringify(payload)
         });
 
+        logDebug(`[handleExecute] Waiting for response from /make-call...`);
         const data = await response.json().catch(() => ({}));
+        
+        logDebug(`[handleExecute] RESPONSE Status: ${response.status} ${response.statusText}`);
+        logDebug(`[handleExecute] RESPONSE Body: ${JSON.stringify(data)}`);
         if (!response.ok || !data.success) {
           if (data.isUnverified) {
             throw new Error("Trial accounts can only call verified numbers — verify this number in your Twilio console, or test with your own number instead.");
@@ -164,76 +194,87 @@ function TranscriptLine({ line }) {
         return;
       }
 
-      if (tool === 'zapier_trigger') {
-        const response = await fetch('https://lfuaxrkukzmzjoljhmvw.supabase.co/functions/v1/zapier-trigger', {
+      if (tool === 'send_email') {
+        logDebug(`[handleExecute] Sending email via backend. Preparing request to /send-email...`);
+        const endpoint = 'https://lfuaxrkukzmzjoljhmvw.supabase.co/functions/v1/send-email';
+        const payload = {
+          commandId,
+          to: params?.to,
+          subject: params?.subject || 'Message from VoiceX',
+          body: params?.body || params?.message || 'Hello'
+        };
+        
+        logDebug(`[handleExecute] REQUEST Endpoint: ${endpoint}`);
+        logDebug(`[handleExecute] REQUEST Payload: ${JSON.stringify(payload)}`);
+
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
             'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
           },
-          body: JSON.stringify({
-            commandId,
-            action_type: params.action_type,
-            payload: params.payload || {}
-          })
+          body: JSON.stringify(payload)
         });
-        
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.error || `Server returned ${response.status}`);
-        }
 
-        const data = await response.json();
-        if (!data.success) {
-          throw new Error(data.error || 'Zapier webhook trigger failed');
+        logDebug(`[handleExecute] Waiting for response from /send-email...`);
+        const data = await response.json().catch(() => ({}));
+        
+        logDebug(`[handleExecute] RESPONSE Status: ${response.status} ${response.statusText}`);
+        logDebug(`[handleExecute] RESPONSE Body: ${JSON.stringify(data)}`);
+
+        if (!response.ok || !data.success) {
+          if (data.requires_fallback) {
+            logDebug(`[handleExecute] Backend requested mailto fallback.`);
+            setMailtoFallbackData(data.mailto);
+            setExecuteStatus('ready_mailto');
+            return;
+          }
+          throw new Error(data.error || 'Email send failed');
         }
 
         setExecuteStatus('success');
         return;
       }
 
-      const response = await fetch('https://lfuaxrkukzmzjoljhmvw.supabase.co/functions/v1/send-email', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
-        },
-        body: JSON.stringify({
+      if (tool === 'zapier_trigger') {
+        logDebug(`[handleExecute] Triggering Zapier via backend. Preparing request to /zapier-trigger...`);
+        const endpoint = 'https://lfuaxrkukzmzjoljhmvw.supabase.co/functions/v1/zapier-trigger';
+        const payload = {
           commandId,
-          to: params.to,
-          subject: params.subject,
-          body: params.body || 'Sent from VoiceX'
-        })
-      });
-      
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(data.error || `Server returned ${response.status}`);
-      }
-
-      if (data.fallbackToMailto) {
-        const mailtoTo = data.to || params.to || '';
-        const mailtoSubject = data.subject || params.subject || '';
-        const mailtoBody = data.body || params.body || '';
+          action: params?.action || 'zapier_webhook',
+          params: params
+        };
         
-        const mailtoUrl = `mailto:${mailtoTo}?subject=${encodeURIComponent(mailtoSubject)}&body=${encodeURIComponent(mailtoBody)}`;
-        console.log('[Email] Generated mailto deep link URL:', mailtoUrl);
-        openDeepLink(mailtoUrl);
-        
-        setExecuteStatus('handed_off');
-        return;
-      }
+        logDebug(`[handleExecute] REQUEST Endpoint: ${endpoint}`);
+        logDebug(`[handleExecute] REQUEST Payload: ${JSON.stringify(payload)}`);
 
-      if (data.success) {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
+          },
+          body: JSON.stringify(payload)
+        });
+
+        logDebug(`[handleExecute] Waiting for response from /zapier-trigger...`);
+        const data = await response.json().catch(() => ({}));
+        
+        logDebug(`[handleExecute] RESPONSE Status: ${response.status} ${response.statusText}`);
+        logDebug(`[handleExecute] RESPONSE Body: ${JSON.stringify(data)}`);
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Zapier webhook failed');
+        }
+
         setExecuteStatus('success');
         return;
       }
-
-      throw new Error(data.error || 'Email send failed');
+      
     } catch (err) {
+      logDebug(`[handleExecute] EXCEPTION CAUGHT: ${err.message}`);
       console.error("Execution failed:", err);
       setExecuteStatus('error');
       setExecuteError(err.message);
@@ -853,6 +894,30 @@ function TranscriptLine({ line }) {
                   </button>
                 </div>
               )}
+            </div>
+          )}
+          
+          {debugLogs.length > 0 && (
+            <div style={{
+              marginTop: '16px',
+              padding: '12px',
+              background: '#05070a',
+              border: '1px dashed #FF4D6A',
+              borderRadius: '4px',
+              fontFamily: 'monospace',
+              fontSize: '0.75em',
+              color: '#B8C2D3',
+              maxHeight: '200px',
+              overflowY: 'auto',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word'
+            }}>
+              <div style={{ color: '#FF4D6A', fontWeight: 'bold', marginBottom: '8px', borderBottom: '1px solid #1E2530', paddingBottom: '4px' }}>
+                DEBUG CONSOLE
+              </div>
+              {debugLogs.map((log, i) => (
+                <div key={i} style={{ marginBottom: '4px' }}>{log}</div>
+              ))}
             </div>
           )}
         </div>
