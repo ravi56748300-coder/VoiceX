@@ -70,31 +70,51 @@ function TranscriptLine({ line }) {
   }, [tool, commandId, params, executeStatus]);
 
   const handleExecute = async () => {
-    if ((tool !== 'send_email' && tool !== 'zapier_trigger' && tool !== 'make_call' && tool !== 'send_sms' && tool !== 'send_whatsapp') || !commandId) return;
+    console.log('[handleExecute] Triggered for tool:', tool, 'Command ID:', commandId);
+
+    if (tool !== 'send_email' && tool !== 'zapier_trigger' && tool !== 'make_call' && tool !== 'send_sms' && tool !== 'send_whatsapp') {
+      console.warn('[handleExecute] Invalid tool:', tool);
+      return;
+    }
+
+    if (!commandId) {
+      console.error('[handleExecute] Missing commandId! Cannot execute.');
+      setExecuteStatus('error');
+      setExecuteError('Execution failed: Missing command ID from server. Please try again.');
+      return;
+    }
     
     setExecuteStatus('loading');
     setExecuteError(null);
     
     try {
       if (tool === 'send_sms') {
-        const number = String(params?.to || '');
-        const message = String(params?.message || '');
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-        const smsUrl = isIOS 
-          ? `sms:${number}&body=${encodeURIComponent(message)}`
-          : `sms:${number}?body=${encodeURIComponent(message)}`;
-        
-        console.log('[SMS] Generated deep link URL:', smsUrl);
-        openDeepLink(smsUrl);
-        setExecuteStatus('handed_off');
+        console.log('[handleExecute] Sending SMS via backend...');
+        const response = await fetch('https://lfuaxrkukzmzjoljhmvw.supabase.co/functions/v1/send-sms', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
+          },
+          body: JSON.stringify({
+            commandId,
+            to: params?.to,
+            message: params?.message || 'Hello from VoiceX'
+          })
+        });
 
-        if (commandId) {
-          fetch('https://lfuaxrkukzmzjoljhmvw.supabase.co/functions/v1/update-command-status', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ commandId, status: 'handed_off' })
-          }).catch(e => console.warn('[SMS] Failed to update command status:', e));
+        const data = await response.json().catch(() => ({}));
+        console.log('[handleExecute] send-sms response:', { ok: response.ok, status: response.status, data });
+
+        if (!response.ok || !data.success) {
+          if (data.isUnverified) {
+            throw new Error("Trial accounts can only text verified numbers — verify this number in your Twilio console, or test with your own number instead.");
+          }
+          throw new Error(data.error || `Server returned ${response.status}`);
         }
+
+        setExecuteStatus('success');
         return;
       }
 
@@ -613,7 +633,57 @@ function TranscriptLine({ line }) {
             </div>
           )}
 
-          {(tool === 'send_sms' || tool === 'send_whatsapp') && (
+          {tool === 'send_sms' && (
+            <div className="action-execute-row" style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{
+                background: '#0A0E14',
+                border: '1px solid #1E2530',
+                borderRadius: '6px',
+                padding: '10px 12px',
+                fontSize: '0.85em',
+                color: '#E8ECF3'
+              }}>
+                <div style={{ color: '#6B7688', fontWeight: 'bold', textTransform: 'uppercase', fontSize: '0.75em', letterSpacing: '0.5px', marginBottom: '4px' }}>
+                  SMS DETAILS (TWILIO)
+                </div>
+                <div style={{ marginBottom: '4px' }}>
+                  <strong style={{ color: '#6B7688' }}>Recipient:</strong> {params?.to}
+                </div>
+                <div>
+                  <strong style={{ color: '#6B7688' }}>Message:</strong> {params?.message || 'Hello from VoiceX'}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button 
+                  onClick={handleExecute}
+                  disabled={executeStatus === 'loading' || executeStatus === 'success'}
+                  style={{
+                    background: executeStatus === 'success' ? '#39FF8A' : '#2E6FF2',
+                    color: executeStatus === 'success' ? '#0A0E14' : '#fff',
+                    border: 'none',
+                    padding: '6px 12px',
+                    borderRadius: '4px',
+                    fontFamily: 'inherit',
+                    cursor: (executeStatus === 'loading' || executeStatus === 'success') ? 'not-allowed' : 'pointer',
+                    fontWeight: 'bold',
+                    fontSize: '0.85em'
+                  }}
+                >
+                  {executeStatus === 'loading' ? 'Sending...' : executeStatus === 'success' ? 'Sent ✓' : 'Send Text'}
+                </button>
+
+                {executeStatus === 'error' && (
+                  <span style={{ color: '#FF4D6A', fontSize: '0.85em' }}>✗ {executeError}</span>
+                )}
+                {executeStatus === 'success' && (
+                  <span style={{ color: '#39FF8A', fontSize: '0.85em' }}>✓ SMS sent via Twilio</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {tool === 'send_whatsapp' && (
             <div className="action-execute-row" style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {executeStatus !== 'picking' && executeStatus !== 'handed_off' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -708,12 +778,6 @@ function TranscriptLine({ line }) {
 
                       return (
                         <>
-                          <a href={smsUrl} target="_blank" rel="noopener noreferrer" onClick={handleHandOffUpdate} style={linkStyle}>
-                            📱 Send via SMS
-                          </a>
-                          <a href={smstoUrl} target="_blank" rel="noopener noreferrer" onClick={handleHandOffUpdate} style={linkStyle}>
-                            📱 Send via SMS (SMSTO)
-                          </a>
                           <a href={waUrl} target="_blank" rel="noopener noreferrer" onClick={handleHandOffUpdate} style={linkStyle}>
                             💬 Send via WhatsApp
                           </a>
@@ -724,7 +788,7 @@ function TranscriptLine({ line }) {
 
                   {executeStatus === 'handed_off' && (
                     <div style={{ marginTop: '6px', color: '#39FF8A', fontSize: '0.85em', fontWeight: 'bold' }}>
-                      ✓ SMS app opened — sent from your messaging client
+                      ✓ WhatsApp opened — sent from your messaging client
                     </div>
                   )}
                 </div>
