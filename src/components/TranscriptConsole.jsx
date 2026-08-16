@@ -84,10 +84,7 @@ function TranscriptLine({ line }) {
     }
 
     if (!commandId) {
-      logDebug(`[handleExecute] ERROR: Missing commandId! Cannot execute.`);
-      setExecuteStatus('error');
-      setExecuteError('Execution failed: Missing command ID from server. Please try again.');
-      return;
+      logDebug(`[handleExecute] Notice: commandId is empty, proceeding with standalone execution.`);
     }
     
     setExecuteStatus('loading');
@@ -446,21 +443,45 @@ function TranscriptLine({ line }) {
               {executeStatus !== 'picking' && executeStatus !== 'handed_off' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <button 
-                    onClick={() => setExecuteStatus('picking')}
+                    onClick={handleExecute}
+                    disabled={executeStatus === 'loading' || executeStatus === 'success'}
                     style={{
-                      background: '#2E6FF2',
-                      color: '#fff',
+                      background: executeStatus === 'success' ? '#39FF8A' : '#2E6FF2',
+                      color: executeStatus === 'success' ? '#0A0E14' : '#fff',
                       border: 'none',
                       padding: '6px 14px',
                       borderRadius: '4px',
                       fontFamily: 'inherit',
-                      cursor: 'pointer',
+                      cursor: (executeStatus === 'loading' || executeStatus === 'success') ? 'not-allowed' : 'pointer',
                       fontWeight: 'bold',
                       fontSize: '0.85em'
                     }}
                   >
-                    Execute
+                    {executeStatus === 'loading' ? 'Sending...' : executeStatus === 'success' ? 'Sent ✓' : 'Execute / Send Email'}
                   </button>
+
+                  <button 
+                    onClick={() => setExecuteStatus('picking')}
+                    style={{
+                      background: '#12171F',
+                      color: '#E8ECF3',
+                      border: '1px solid #2E6FF2',
+                      padding: '6px 12px',
+                      borderRadius: '4px',
+                      fontFamily: 'inherit',
+                      cursor: 'pointer',
+                      fontSize: '0.85em'
+                    }}
+                  >
+                    Open in Email App ↗
+                  </button>
+
+                  {executeStatus === 'error' && (
+                    <span style={{ color: '#FF4D6A', fontSize: '0.85em' }}>✗ {executeError}</span>
+                  )}
+                  {executeStatus === 'success' && (
+                    <span style={{ color: '#39FF8A', fontSize: '0.85em' }}>✓ Email sent via Resend</span>
+                  )}
                 </div>
               )}
 
@@ -726,13 +747,14 @@ function TranscriptLine({ line }) {
 
           {tool === 'send_whatsapp' && (
             <div className="action-execute-row" style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {executeStatus !== 'picking' && executeStatus !== 'handed_off' && (
+              {executeStatus !== 'handed_off' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <button 
-                    onClick={() => setExecuteStatus('picking')}
+                    onClick={handleExecute}
+                    disabled={executeStatus === 'loading' || executeStatus === 'handed_off'}
                     style={{
-                      background: '#2E6FF2',
-                      color: '#fff',
+                      background: executeStatus === 'handed_off' ? '#39FF8A' : '#2E6FF2',
+                      color: executeStatus === 'handed_off' ? '#0A0E14' : '#fff',
                       border: 'none',
                       padding: '6px 14px',
                       borderRadius: '4px',
@@ -742,7 +764,7 @@ function TranscriptLine({ line }) {
                       fontSize: '0.85em'
                     }}
                   >
-                    Execute
+                    {executeStatus === 'loading' ? 'Opening...' : executeStatus === 'handed_off' ? 'Opened ✓' : 'Execute / Open WhatsApp'}
                   </button>
                 </div>
               )}
