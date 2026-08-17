@@ -26,31 +26,59 @@ serve(async (req) => {
       );
     }
 
+    const discordWebhookUrl = Deno.env.get("DISCORD_WEBHOOK_URL");
     const zapierWebhookUrl = Deno.env.get("ZAPIER_WEBHOOK_URL");
-    if (!zapierWebhookUrl) {
-      throw new Error("ZAPIER_WEBHOOK_URL environment secret is missing");
+
+    let resultText = "Webhook executed successfully";
+
+    // 1. Direct Discord Webhook Support
+    if (action_type === 'discord' && discordWebhookUrl) {
+      const messageText = payload.text || payload.content || "Message from VoiceX";
+      const discordRes = await fetch(discordWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: messageText,
+          username: "VoiceX Assistant"
+        })
+      });
+
+      if (!discordRes.ok) {
+        const errText = await discordRes.text();
+        throw new Error(`Discord Webhook Error (${discordRes.status}): ${errText}`);
+      }
+      resultText = `Posted message to Discord channel: "${messageText}"`;
+
+    } else if (zapierWebhookUrl) {
+      // 2. Zapier Webhook Trigger
+      const webhookPayload = {
+        action_type,
+        ...(typeof payload === 'object' ? payload : {})
+      };
+
+      const zapierRes = await fetch(zapierWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(webhookPayload)
+      });
+
+      if (!zapierRes.ok) {
+        const errorText = await zapierRes.text();
+        if (zapierRes.status === 404 || errorText.includes("please unsubscribe me")) {
+          throw new Error("Zapier Webhook is currently paused or turned OFF in your Zapier Dashboard. Please turn ON your Zap (or set DISCORD_WEBHOOK_URL in Supabase secrets for direct Discord posting).");
+        }
+        throw new Error(`Zapier Webhook Error (${zapierRes.status}): ${errorText}`);
+      }
+
+      resultText = await zapierRes.text();
+
+    } else {
+      throw new Error(
+        action_type === 'discord'
+          ? "Neither DISCORD_WEBHOOK_URL nor ZAPIER_WEBHOOK_URL is configured. Set one in Supabase secrets."
+          : "ZAPIER_WEBHOOK_URL environment secret is missing."
+      );
     }
-
-    const webhookPayload = {
-      action_type,
-      ...(typeof payload === 'object' ? payload : {})
-    };
-
-    // POST to Zapier Webhook
-    const zapierRes = await fetch(zapierWebhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(webhookPayload)
-    });
-
-    if (!zapierRes.ok) {
-      const errorText = await zapierRes.text();
-      throw new Error(`Zapier Webhook Error (${zapierRes.status}): ${errorText}`);
-    }
-
-    const zapierResultText = await zapierRes.text();
 
     // Update command status to executed
     if (commandId && supabaseServiceRoleKey) {
@@ -63,12 +91,12 @@ serve(async (req) => {
           "Authorization": `Bearer ${supabaseServiceRoleKey}`,
           "Prefer": "return=minimal"
         },
-        body: JSON.stringify({ status: "executed" })
+        body: JSON.stringify({ status: "executed", result: resultText })
       }).catch(e => console.error("Database status update error:", e));
     }
 
     return new Response(
-      JSON.stringify({ success: true, result: zapierResultText }),
+      JSON.stringify({ success: true, result: resultText }),
       { status: 200, headers: corsHeaders }
     );
 
