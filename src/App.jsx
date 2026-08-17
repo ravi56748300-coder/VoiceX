@@ -772,9 +772,7 @@ export default function App() {
       {/* Bottom Third: Terminal Text Input */}
       <footer>
         <TextConsoleInput
-          onSubmit={handleUserMessage}
           onSendMessage={handleUserMessage}
-          disabled={orbState === 'thinking'}
           isProcessing={orbState === 'thinking'}
         />
       </footer>

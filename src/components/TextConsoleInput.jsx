@@ -7,18 +7,13 @@ import { ArrowRight, CornerDownLeft } from 'lucide-react';
  * @param {Function} props.onSubmit - Triggered when user submits a text command
  * @param {boolean} [props.disabled] - Disables input while assistant is processing
  */
-export function TextConsoleInput({ onSubmit, onSendMessage, disabled = false, isProcessing = false }) {
+export function TextConsoleInput({ onSubmit, disabled = false }) {
   const [value, setValue] = useState('');
-  const isDisabled = Boolean(disabled || isProcessing);
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const trimmed = value.trim();
-    if (!trimmed || isDisabled) return;
-    const sendFn = onSubmit || onSendMessage;
-    if (typeof sendFn === 'function') {
-      sendFn(trimmed);
-    }
+    if (!value.trim() || disabled) return;
+    onSubmit(value.trim());
     setValue('');
   };
 
@@ -31,8 +26,8 @@ export function TextConsoleInput({ onSubmit, onSendMessage, disabled = false, is
           className="terminal-input"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder={isDisabled ? 'Processing command...' : 'Type a command or query...'}
-          disabled={isDisabled}
+          placeholder={disabled ? 'Processing command...' : 'Type a command or query...'}
+          disabled={disabled}
           aria-label="Terminal prompt command input"
           autoComplete="off"
           spellCheck="false"
@@ -40,7 +35,7 @@ export function TextConsoleInput({ onSubmit, onSendMessage, disabled = false, is
         <button
           type="submit"
           className="send-btn"
-          disabled={!value.trim() || isDisabled}
+          disabled={!value.trim() || disabled}
           aria-label="Send command"
           title="Send command (Enter)"
         >

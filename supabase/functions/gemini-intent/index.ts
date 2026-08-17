@@ -196,8 +196,8 @@ function synthesizeReply(toolName: string | null, params: Record<string, any> | 
 }
 
 async function callGeminiModel(apiKey: string, transcript: string, history: any[] = []) {
-  // Use active models with quota (gemini-flash-latest and gemini-3.6-flash)
-  const models = ['gemini-flash-latest', 'gemini-3.6-flash', 'gemini-2.0-flash'];
+  // Use active Google Gemini models with highest availability
+  const models = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest'];
   let lastError = null;
 
   const contents = history.map((item: any) => ({
