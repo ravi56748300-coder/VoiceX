@@ -1,19 +1,23 @@
 import React, { useState } from 'react';
-import { ArrowRight, CornerDownLeft } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 /**
  * TextConsoleInput is the fallback text input console formatted as a terminal prompt.
  * @param {Object} props
- * @param {Function} props.onSubmit - Triggered when user submits a text command
+ * @param {Function} [props.onSubmit] - Triggered when user submits a text command
+ * @param {Function} [props.onSendMessage] - Alias for onSubmit
  * @param {boolean} [props.disabled] - Disables input while assistant is processing
+ * @param {boolean} [props.isProcessing] - Alias for disabled
  */
-export function TextConsoleInput({ onSubmit, disabled = false }) {
+export function TextConsoleInput({ onSubmit, onSendMessage, disabled = false, isProcessing = false }) {
   const [value, setValue] = useState('');
+  const isDisabled = Boolean(disabled || isProcessing);
+  const submitHandler = onSubmit || onSendMessage;
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!value.trim() || disabled) return;
-    onSubmit(value.trim());
+    if (!value.trim() || isDisabled || !submitHandler) return;
+    submitHandler(value.trim());
     setValue('');
   };
 
@@ -26,8 +30,8 @@ export function TextConsoleInput({ onSubmit, disabled = false }) {
           className="terminal-input"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder={disabled ? 'Processing command...' : 'Type a command or query...'}
-          disabled={disabled}
+          placeholder={isDisabled ? 'Processing command...' : 'Type a command or query...'}
+          disabled={isDisabled}
           aria-label="Terminal prompt command input"
           autoComplete="off"
           spellCheck="false"
@@ -35,7 +39,7 @@ export function TextConsoleInput({ onSubmit, disabled = false }) {
         <button
           type="submit"
           className="send-btn"
-          disabled={!value.trim() || disabled}
+          disabled={!value.trim() || isDisabled}
           aria-label="Send command"
           title="Send command (Enter)"
         >
